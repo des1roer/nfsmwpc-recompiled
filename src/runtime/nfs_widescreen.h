@@ -21,11 +21,18 @@ float nfs_widescreen_hud_pos_x(void);
 int nfs_widescreen_hud_entries(void);
 /* Vertical offset (480-line HUD units, negative = up) added to the minimap. */
 void nfs_widescreen_set_minimap_offset(float dy);
+/* Also move the minimap left by the widescreen margin (Android top-left layout). */
+void nfs_widescreen_set_minimap_left(int on);
 /* Game frame pacing (the game caps itself at 60): fps >= 30 replaces its 1/60 s
  * frame time; 0 keeps the original. apply() re-asserts it once per frame,
  * since the game re-sets 1/60 on mode changes. */
 void nfs_widescreen_set_frame_rate(unsigned fps);
 void nfs_widescreen_apply_frame_rate(void);
+/* Cheat: keep the player's nitrous full (hooks 0x692A96 / 0x692AFA). */
+void nfs_cheat_infinite_nitro(int on);
+/* Speedometer HUD object last updated (speed in m/s at +0x48), 0 before the
+ * first race HUD; *calls counts its updates so a host sees when it stops. */
+uint32_t nfs_speedometer_object(uint32_t* calls);
 
 #ifdef __cplusplus
 }

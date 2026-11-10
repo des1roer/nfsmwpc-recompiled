@@ -332,6 +332,9 @@ extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nat
 }
 extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeResolution(JNIEnv*,jclass,jint width,jint height){setGuestResolution(unsigned(width),unsigned(height));}
 extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeFrameLimit(JNIEnv*,jclass,jint cap){setGuestFrameLimit(unsigned(cap));}
+extern "C" JNIEXPORT jfloat JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeSpeed(JNIEnv*,jclass){return guestHudSpeedKmh();}
+extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeAddCash(JNIEnv*,jclass,jint amount){queueGuestCash(int32_t(amount));}
+extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeInfiniteNitro(JNIEnv*,jclass,jboolean on){setGuestInfiniteNitro(on==JNI_TRUE);}
 extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeGamepadConnected(JNIEnv*,jclass,jboolean connected){setGuestPadConnected(connected==JNI_TRUE);}
 extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeGamepadDevices(JNIEnv* env,jclass,jintArray ids){
     std::vector<int32_t> devices;
@@ -342,12 +345,13 @@ extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nat
     gamepadDevices=std::move(devices);
 }
 extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeWidescreen(JNIEnv*,jclass,jboolean enabled){setGuestWidescreen(enabled==JNI_TRUE);}
+extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeSkipIntro(JNIEnv*,jclass,jboolean enabled){setGuestSkipIntro(enabled==JNI_TRUE);}
 extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeNetworkIdentity(JNIEnv*,jclass,jlong identity){setGuestNetworkIdentity(uint64_t(identity));}
 // Minimap at the top-left: the bottom-left corner sits under the steering thumb.
 extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeOnlineServer(JNIEnv* env,jclass,jstring host){
     const char* text=env->GetStringUTFChars(host,nullptr);setGuestOnlineServer(text?text:"");env->ReleaseStringUTFChars(host,text);
 }
-extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeMinimapTop(JNIEnv*,jclass,jboolean top){nfs_widescreen_set_minimap_offset(top==JNI_TRUE?-230.0f:0.0f);}
+extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeMinimapTop(JNIEnv*,jclass,jboolean top){nfs_widescreen_set_minimap_offset(top==JNI_TRUE?-230.0f:0.0f);nfs_widescreen_set_minimap_left(top==JNI_TRUE);}
 static bool compatCpuTextures=false;static unsigned compatBackBuffers=2;
 extern "C" JNIEXPORT void JNICALL Java_com_nfsmw_androidevolved_GameActivity_nativeBackBuffers(JNIEnv*,jclass,jint count){
     compatBackBuffers=unsigned(count);setD3D9Compatibility(compatCpuTextures,compatBackBuffers);
@@ -397,8 +401,34 @@ static void configureAdapterIdentity(android_app* app){
         std::fclose(out);setenv("DXVK_CONFIG_FILE",path.c_str(),1);
     }else __android_log_print(ANDROID_LOG_WARN,"NFSMW","dxvk.conf not written: shadow detail stays unavailable");
 }
+#ifdef NFS_PGO_GENERATE
+extern "C" void __llvm_profile_set_filename(const char*);
+extern "C" int __llvm_profile_write_file(void);
+// Instrumented build: counters are written when <external files>/pgo/dump
+// appears (adb shell touch ...), from this thread so the dump of the lifted
+// code (~1-2 s) never blocks the render thread. %m merges runs into one file.
+static void startProfileDumpWatch(android_app* app){
+    const char* files=app->activity->externalDataPath;if(!files||!*files)files=app->activity->internalDataPath;
+    auto directory=std::filesystem::path(files)/"pgo";std::error_code error;std::filesystem::create_directories(directory,error);
+    static std::string pattern=(directory/"default_%m.profraw").string(),flag=(directory/"dump").string();
+    __llvm_profile_set_filename(pattern.c_str());
+    __android_log_print(ANDROID_LOG_INFO,"NFSMW","PGO instrumented build: profile %s, trigger %s",pattern.c_str(),flag.c_str());
+    std::thread([]{
+        for(;;){
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            if(access(flag.c_str(),F_OK)!=0)continue;
+            unlink(flag.c_str());
+            int status=__llvm_profile_write_file();
+            __android_log_print(ANDROID_LOG_INFO,"NFSMW","PGO profile written: status %d",status);
+        }
+    }).detach();
+}
+#endif
 void android_main(android_app* app) {
     configurePipelineCache(app);
+#ifdef NFS_PGO_GENERATE
+    startProfileDumpWatch(app);
+#endif
     configureAdapterIdentity(app);
     Host host; app->userData = &host; app->onAppCmd = onCommand;app->onInputEvent=onInput;
     try {

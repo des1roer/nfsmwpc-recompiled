@@ -20,7 +20,7 @@ public final class GpuProbeActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         TextView status = new TextView(this);
-        status.setText("Comprobando el driver Vulkan…");
+        status.setText(Lang.t(this, "Comprobando el driver Vulkan…"));
         status.setTextColor(0xFFFFFFFF); status.setTextSize(18);
         status.setGravity(android.view.Gravity.CENTER); status.setBackgroundColor(0xFF0B0F14);
         setContentView(status);

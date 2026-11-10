@@ -1,4 +1,19 @@
 plugins { id 'com.android.application' }
+
+// Game files bundled into the APK (as in the NFSU2 port): -PnfsGameData=DIR or nfs.gameData=DIR in
+// local.properties. The launcher unpacks them to Internal storage/nfsmw on first run. d3dx9_26.dll is
+// taken from -PnfsD3dx=FILE / nfs.d3dx, else from the PC's SysWOW64, when the game folder lacks it.
+def localProps = new Properties()
+def localPropsFile = rootProject.file('local.properties')
+if (localPropsFile.exists()) localPropsFile.withInputStream { localProps.load(it) }
+def gameData = project.findProperty('nfsGameData') ?: localProps.getProperty('nfs.gameData')
+def d3dx = project.findProperty('nfsD3dx') ?: localProps.getProperty('nfs.d3dx')
+if (gameData && !d3dx && !new File(gameData, 'd3dx9_26.dll').isFile()) {
+    def system = new File(System.getenv('SystemRoot') ?: 'C:/Windows', 'SysWOW64/d3dx9_26.dll')
+    if (system.isFile()) d3dx = system.path
+}
+def gameAssets = layout.buildDirectory.dir('game-assets').get().asFile
+
 android {
     namespace 'com.nfsmw.androidevolved'
     compileSdk 35
@@ -11,9 +26,35 @@ android {
         versionName '0.1.13'
         // -PnfsAbi=armeabi-v7a builds the separate 32-bit APK.
         ndk { abiFilters(project.findProperty('nfsAbi') ?: 'arm64-v8a') }
-        externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static' } }
+        // Optimisations from the NFSU2 port (see src/main/cpp/CMakeLists.txt): -PnfsCpu=cortex-a720 builds
+        // for one SoC (Xiaomi 15T); -PnfsFast fixed guest base; -PnfsNoYield no loop yields; -PnfsOpt=O3;
+        // -PnfsPgo=generate|use with -PnfsPgoProfile=<merged .profdata>.
+        externalNativeBuild { cmake { arguments '-DANDROID_STL=c++_static', "-DNFS_GUEST_CPU=${project.findProperty('nfsCpu') ?: ''}",
+            "-DNFS_GUEST_FAST=${project.hasProperty('nfsFast') ? 'ON' : 'OFF'}",
+            "-DNFS_GUEST_NO_YIELD=${project.hasProperty('nfsNoYield') ? 'ON' : 'OFF'}",
+            "-DNFS_GUEST_OPT=${project.findProperty('nfsOpt') ?: 'O2'}",
+            "-DNFS_PGO=${project.findProperty('nfsPgo') ?: ''}",
+            "-DNFS_PGO_PROFILE=${project.findProperty('nfsPgoProfile') ?: ''}" } }
     }
     externalNativeBuild { cmake { path file('src/main/cpp/CMakeLists.txt'); version '3.30.5' } }
+    if (gameData) {
+        sourceSets { main { assets.srcDir gameAssets } }
+        // Stored, not deflated: the launcher streams the game out on first run.
+        androidResources { noCompress '' }
+    }
     // adrenotools opens its namespace hook libraries by path from nativeLibraryDir.
     packaging { jniLibs { useLegacyPackaging true } }
+}
+
+if (gameData) {
+    def syncGameData = tasks.register('syncGameData', Sync) {
+        // Only what the game reads: no installers, redistributables, x86 ASI mods or launch scripts.
+        from(gameData) {
+            exclude 'Redist/**', 'Support/**', 'scripts/**', 'unins*', '*.URL', '*.url', '*.ico', '*.NFO', '*.nfo',
+                    '**/*.lnk', 'dinput8.dll', 'eauninstall.exe', 'safemode_inst.exe', 'shell_inst.exe', 'INSTALL.LOG'
+        }
+        if (d3dx) from(d3dx) { rename { 'd3dx9_26.dll' } }
+        into new File(gameAssets, 'nfsmw')
+    }
+    tasks.named('preBuild') { dependsOn syncGameData }
 }

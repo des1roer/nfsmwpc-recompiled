@@ -21,3 +21,7 @@
 0x006CF5E2  eView projection: vertical constant (fdivr 1.0)
 # Robustness for incomplete game data (Android reports).
 0x00460CA0  bounded string copy: a NULL source (localized string missing from the player's language files) copies an empty string
+# Android cheats and speed overlay (src/runtime/widescreen.c).
+0x0057A540  Speedometer HUD update entry: this (ecx) holds the speed for the overlay
+0x00692A96  Nitrous charge read (empty check): infinite-nitrous cheat refills it
+0x00692AFA  Nitrous charge read (drain): infinite-nitrous cheat refills it

@@ -34,8 +34,13 @@ int nfs_widescreen_hud_entries(void) { return 0; }
  * at +0xBC and data +0x20, and the radar icons add the pivot pair at 0x91CF04
  * (X) / 0x91CF08 (Y, otherwise unused and 0). */
 static float minimap_offset;
+/* Android "top-left" layout: the map also moves left by the widescreen margin
+ * (hud_center - 320), keeping its 4:3 distance to the left edge of the screen. */
+static int minimap_left;
 static uint32_t minimap_object;
-static float minimap_applied,minimap_written_y;
+static float minimap_applied,minimap_written_y,minimap_applied_x;
+static float pivot_base,pivot_written;
+static float minimap_offset_x(void){return minimap_left&&hud_center>320.f?320.f-hud_center:0.f;}
 static float get_float(uint32_t address){float value;uint32_t bits=MEM32(address);memcpy(&value,&bits,sizeof(value));return value;}
 /* The round frame (and other art centred on the map) is not referenced by the
  * Minimap. TRACK_MAP0..3 are tiles inside an FE group of the HUD package; the
@@ -86,15 +91,18 @@ static uint32_t find_map_group(uint32_t first,uint32_t tile,uint32_t* list,unsig
 }
 /* HUD package objects can outlive a Minimap: remember what was written so a
  * later pass starts from the original Y instead of moving them twice. */
-static struct {uint32_t data;float original,written;} frame_moves[64];
+static struct {uint32_t data;float original_x,original,written_x,written;} frame_moves[64];
 static void move_frame_object(uint32_t data){
-    float y=get_float(data+0x20u);
+    float x=get_float(data+0x1cu),y=get_float(data+0x20u);
     unsigned slot=0;
     for(;slot<64u&&frame_moves[slot].data;++slot)if(frame_moves[slot].data==data)break;
     if(slot==64u)slot=63u;
-    if(frame_moves[slot].data!=data||y!=frame_moves[slot].written){frame_moves[slot].data=data;frame_moves[slot].original=y;}
+    if(frame_moves[slot].data!=data||y!=frame_moves[slot].written||x!=frame_moves[slot].written_x){
+        frame_moves[slot].data=data;frame_moves[slot].original=y;frame_moves[slot].original_x=x;}
     frame_moves[slot].written=frame_moves[slot].original+minimap_offset;
+    frame_moves[slot].written_x=frame_moves[slot].original_x+minimap_offset_x();
     put_float(data+0x20u,frame_moves[slot].written);
+    put_float(data+0x1cu,frame_moves[slot].written_x);
 }
 /* Objects positioned (in absolute HUD units: groups add their position to
  * their children's) within 40 units of the map centre, outside the map group,
@@ -127,13 +135,16 @@ static void move_minimap_frame(uint32_t hud,uint32_t minimap,float dy){
     if(!minimap_frame_logged)HUD_LOG("minimap group %08x at %.1f,%.1f: %u objects visited, %u moved with the map",MEM32(group+0x10u),cx,cy,count,moved);
     minimap_frame_logged=1;
 }
-static void move_minimap(uint32_t hud,uint32_t minimap,float dy){
+static void move_minimap(uint32_t hud,uint32_t minimap,float dx,float dy){
     move_minimap_frame(hud,minimap,dy);
+    /* As Minimap::AdjustForWidescreen (0x5678A0) for X: local X and all five children. */
     static const uint32_t children[]={0x3cu,0x40u,0x44u,0x48u,0x90u};
     for(unsigned i=0;i<sizeof(children)/sizeof(children[0]);++i){
         uint32_t child=MEM32(minimap+children[i]),data=child?MEM32(child+0x2cu):0;
         if(data&&children[i]!=0x90u)put_float(data+0x20u,get_float(data+0x20u)+dy);
+        if(data)put_float(data+0x1cu,get_float(data+0x1cu)+dx);
     }
+    put_float(minimap+0xb8u,get_float(minimap+0xb8u)+dx);
     put_float(minimap+0xbcu,get_float(minimap+0xbcu)+dy);
     { uint32_t child=MEM32(minimap+0x90u),data=child?MEM32(child+0x2cu):0;
       if(data)MEM32(data+0x20u)=MEM32(minimap+0xbcu); }
@@ -144,12 +155,23 @@ static void move_minimap(uint32_t hud,uint32_t minimap,float dy){
 static void update_minimap(uint32_t hud){
     uint32_t minimap=hud?MEM32(hud+0x320u):0;
     if(!minimap){minimap_object=0;return;}
-    if(minimap!=minimap_object||get_float(minimap+0xbcu)!=minimap_written_y){minimap_object=minimap;minimap_applied=0.f;}
-    if(minimap_applied!=minimap_offset){move_minimap(hud,minimap,minimap_offset-minimap_applied);minimap_applied=minimap_offset;}
+    if(minimap!=minimap_object||get_float(minimap+0xbcu)!=minimap_written_y){minimap_object=minimap;minimap_applied=0.f;minimap_applied_x=0.f;}
+    float target_x=minimap_offset_x();
+    if(minimap_applied!=minimap_offset||minimap_applied_x!=target_x){
+        move_minimap(hud,minimap,target_x-minimap_applied_x,minimap_offset-minimap_applied);
+        minimap_applied=minimap_offset;minimap_applied_x=target_x;
+    }
     minimap_written_y=get_float(minimap+0xbcu);
     put_float(0x0091CF08u,minimap_applied);
+    /* The radar icons' X pivot: the game sets it (0 or -120) on a widescreen mode
+     * change; keep its value and add the horizontal move on top. */
+    float pivot=get_float(0x0091CF04u);
+    if(pivot!=pivot_written)pivot_base=pivot;
+    pivot_written=pivot_base+minimap_applied_x;
+    put_float(0x0091CF04u,pivot_written);
 }
 void nfs_widescreen_set_minimap_offset(float dy) { minimap_offset=dy; }
+void nfs_widescreen_set_minimap_left(int on) { minimap_left=on!=0; }
 void nfs_widescreen_set_frame_rate(unsigned fps) { (void)fps; }
 void nfs_widescreen_apply_frame_rate(void) {}
 void nfs_frontend_cursor_units(int on) { (void)on; }
@@ -170,8 +192,23 @@ static void fix_fov_view(uint32_t view){
     g_st[0]=view==3?0.4:1.0;
 }
 
+/* Android cheats and the speed overlay (nfs_widescreen.h). Infinite nitrous
+ * follows Odell's 1.3 trainer (github.com/odell0111/nfs-mostwanted-trainer),
+ * which turns both `fld [esi+0xF8]` reads of the charge into `fld 1.0`; here the
+ * charge itself is refilled before each read, so no x86 byte changes. */
+static volatile int infinite_nitro;
+static volatile uint32_t speedometer_object,speedometer_calls;
+void nfs_cheat_infinite_nitro(int on){infinite_nitro=on!=0;}
+uint32_t nfs_speedometer_object(uint32_t* calls){if(calls)*calls=speedometer_calls;return speedometer_object;}
+
 void recomp_hook(uint32_t va) {
     switch(va){
+    /* Speedometer HUD update (vtable 0x8A21D4 slot 1): this = ecx; it shows
+     * fabs(m/s at +0x48) * 3.6 (km/h) or * 2.237 (mph). */
+    case 0x0057A540u:speedometer_object=g_ecx;speedometer_calls++;return;
+    /* Nitrous charge (0..1) at vehicle+0xF8: read for the empty check, then
+     * drained by this frame's use and stored back. */
+    case 0x00692A96u:case 0x00692AFAu:if(infinite_nitro)put_float(g_esi+0xF8u,1.f);return;
     /* strncpy-like copy (dest, src, count): the localized-string lookup at
      * 0x56BB80 returns NULL when the player's LANGUAGES files lack the entry
      * (other game editions), and the copy read guest address 0. Copy "". */

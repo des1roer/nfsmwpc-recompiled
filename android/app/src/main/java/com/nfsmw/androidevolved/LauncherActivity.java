@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.content.res.AssetFileDescriptor;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -26,6 +27,12 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -42,6 +49,7 @@ public final class LauncherActivity extends Activity {
     /** {label, guest language name, LANGUAGES/<file>.bin}. */
     private static final String[][] LANGUAGES = {
         {"Español", "Spanish", "Spanish"}, {"English", "English", "English"},
+        {"Русский", "Russian", "Russian"},
         {"Français", "French", "French"}, {"Deutsch", "German", "German"},
         {"Italiano", "Italian", "Italian"}, {"Nederlands", "Dutch", "Dutch"},
         {"Svenska", "Swedish", "Swedish"}, {"Dansk", "Danish", "Danish"},
@@ -52,7 +60,10 @@ public final class LauncherActivity extends Activity {
     private LinearLayout checksList, optionsList;
     private TextView status;
     private Button play, access;
-    private boolean playAfterProbe, checkingUpdates, resumed;
+    private boolean playAfterProbe, checkingUpdates, resumed, extracting, extractFailed;
+    private String extractStatus = "";
+    /** Game files packed into the APK under assets/nfsmw (see app/build.gradle). */
+    private static final String BUNDLE = "nfsmw";
     private final ExecutorService worker = Executors.newSingleThreadExecutor();
     private final Handler main = new Handler(Looper.getMainLooper());
 
@@ -212,7 +223,103 @@ public final class LauncherActivity extends Activity {
         play.setEnabled(ready);
         play.setAlpha(ready ? 1f : .45f);
         access.setVisibility(allowed ? View.GONE : View.VISIBLE);
+        if (ready) ensureLanguage();
         refreshOptions();
+        if (allowed && !extracting && !extractFailed && hasBundledGame() && !bundleExtracted()) extractBundledGame();
+        if (extracting) {
+            status.setText(extractStatus);
+            play.setEnabled(false);
+            play.setAlpha(.45f);
+        }
+    }
+
+    // ---- Bundled game files ------------------------------------------------------------------------------
+
+    private boolean hasBundledGame() {
+        try {
+            String[] files = getAssets().list(BUNDLE);
+            return files != null && files.length > 0;
+        } catch (IOException error) { return false; }
+    }
+
+    /** Changes with every install, so an updated APK unpacks its files again. */
+    private String bundleStamp() {
+        try { return String.valueOf(getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime); }
+        catch (PackageManager.NameNotFoundException error) { return "0"; }
+    }
+
+    private static File bundleMarker() { return new File(gameRoot(), ".bundle_installed"); }
+
+    private boolean bundleExtracted() {
+        try {
+            return bundleMarker().isFile()
+                    && new String(Files.readAllBytes(bundleMarker().toPath()), StandardCharsets.UTF_8).trim().equals(bundleStamp());
+        } catch (IOException error) { return false; }
+    }
+
+    private void listAssets(String path, List<String> out) throws IOException {
+        String[] children = getAssets().list(path);
+        if (children == null || children.length == 0) { out.add(path); return; }
+        for (String child : children) listAssets(path + "/" + child, out);
+    }
+
+    private void extractBundledGame() {
+        extracting = true;
+        extractStatus = tr("Preparando los archivos del juego…");
+        status.setText(extractStatus);
+        play.setEnabled(false);
+        play.setAlpha(.45f);
+        File root = gameRoot();
+        worker.execute(() -> {
+            try {
+                List<String> files = new ArrayList<>();
+                listAssets(BUNDLE, files);
+                byte[] buffer = new byte[1 << 20];
+                for (int i = 0; i < files.size(); i++) {
+                    String asset = files.get(i);
+                    String name = asset.substring(BUNDLE.length() + 1);
+                    File out = new File(root, name);
+                    long size = -1;
+                    try (AssetFileDescriptor fd = getAssets().openFd(asset)) { size = fd.getLength(); }
+                    catch (IOException compressed) { /* length unknown: always copy */ }
+                    // A partly unpacked game resumes where it stopped.
+                    if (size >= 0 && out.isFile() && out.length() == size) continue;
+                    File parent = out.getParentFile();
+                    if (parent != null && !parent.isDirectory() && !parent.mkdirs())
+                        throw new IOException(tr("No se pudo crear la carpeta %s", parent));
+                    File part = new File(out.getPath() + ".part");
+                    try (InputStream in = getAssets().open(asset); OutputStream dst = new FileOutputStream(part)) {
+                        for (int n; (n = in.read(buffer)) > 0; ) dst.write(buffer, 0, n);
+                    }
+                    if (out.exists() && !out.delete()) throw new IOException(tr("No se pudo reemplazar %s", out));
+                    if (!part.renameTo(out)) throw new IOException(tr("No se pudo escribir %s", out));
+                    int percent = (i + 1) * 100 / files.size();
+                    String text = tr("Descomprimiendo los archivos del juego: %s%% (%s de %s)", percent, i + 1, files.size());
+                    main.post(() -> { extractStatus = text; if (extracting) status.setText(text); });
+                }
+                Files.write(bundleMarker().toPath(), bundleStamp().getBytes(StandardCharsets.UTF_8));
+                main.post(() -> { extracting = false; refresh(); });
+            } catch (Exception error) {
+                main.post(() -> {
+                    extracting = false;
+                    extractFailed = true;
+                    refresh();
+                    message(tr("Archivos del juego"), tr("No se pudieron descomprimir los archivos del juego: %s\n\nComprueba que haya al menos 4 GB libres en la memoria interna y vuelve a abrir la aplicación.", error.getMessage()));
+                });
+            }
+        });
+    }
+
+    /** A saved game language whose LANGUAGES/<file>.bin this copy lacks falls back to one it has. */
+    private void ensureLanguage() {
+        List<String[]> found = languages();
+        if (found.isEmpty()) return;
+        String current = GameOptions.language(this);
+        for (String[] language : found) if (language[1].equals(current)) return;
+        String pick = found.get(0)[1];
+        String preferred = java.util.Locale.getDefault().getLanguage().equals("ru") ? "Russian" : "English";
+        for (String[] language : found) if (language[1].equals(preferred)) pick = preferred;
+        GameOptions.prefs(this).edit().putString(GameOptions.LANGUAGE, pick).apply();
     }
 
     private void refreshOptions() {
@@ -252,7 +359,7 @@ public final class LauncherActivity extends Activity {
         box.setOrientation(LinearLayout.VERTICAL);
         box.setGravity(Gravity.CENTER_HORIZONTAL);
         box.setPadding(dp(20), dp(16), dp(20), dp(12));
-        box.addView(label("Elige tu idioma · Choose your language · Escolha seu idioma", 15, Color.WHITE, true));
+        box.addView(label("Elige tu idioma · Choose your language · Escolha seu idioma · Выберите язык", 15, Color.WHITE, true));
         LinearLayout flags = new LinearLayout(this);
         flags.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams flagsParams = new LinearLayout.LayoutParams(-1, -2);
@@ -525,6 +632,7 @@ public final class LauncherActivity extends Activity {
                 .putExtra("frameCap", Integer.parseInt(GameOptions.get(this, GameOptions.FPS)))
                 .putExtra("widescreen", GameOptions.get(this, GameOptions.WIDESCREEN).equals("on"))
                 .putExtra("minimapTop", GameOptions.get(this, GameOptions.MINIMAP).equals("top"))
+                .putExtra("skipIntro", GameOptions.get(this, GameOptions.INTRO).equals("skip"))
                 .putExtra("backBuffers", Integer.parseInt(GameOptions.get(this, GameOptions.LATENCY)))
                 .putExtra("cpuTextures", GameOptions.get(this, GameOptions.TEXTURES).equals("cpu"))
                 .putExtra("padJoystick", GameOptions.get(this, GameOptions.GAMEPAD).equals("directinput"))

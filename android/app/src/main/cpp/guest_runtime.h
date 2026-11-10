@@ -18,6 +18,8 @@ void setGuestPadConnected(bool connected);
 bool guestGamepadInUse();
 // Launcher option; only before the guest boots.
 void setGuestWidescreen(bool enabled);
+// Launcher option, before the guest boots: the EA logo and PSA start-up movies are skipped.
+void setGuestSkipIntro(bool enabled);
 void setGuestOnlineServer(const std::string& host);
 void setGuestNetworkIdentity(uint64_t identity);
 /** Touch as mouse: x/y as a fraction of the game view; phase 0 down, 1 move, 2 up (left button). */
@@ -27,3 +29,8 @@ void typeGuestText(const std::vector<uint32_t>& characters);
 void setGuestLanguage(const char* language);
 void setGuestResolution(unsigned width,unsigned height);
 void setGuestFrameLimit(unsigned framesPerSecond);
+/** Cheats: cash added to the career profile at the next frame; infinite nitrous on/off. */
+void queueGuestCash(int32_t amount);
+void setGuestInfiniteNitro(bool enabled);
+/** Player speed the HUD speedometer shows, km/h; negative when it has not updated for a second. */
+float guestHudSpeedKmh();

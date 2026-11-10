@@ -33,6 +33,35 @@ public final class GameActivity extends NativeActivity {
     private PopupWindow statusWindow;
     private PopupWindow controlsWindow;
     private RacingControlsView touchControls;
+    private TextView speed;
+    private PopupWindow speedWindow;
+    private static final String CHEATS = "nfsmw_cheats", INFINITE_NITRO = "infinite_nitro";
+    private static native float nativeSpeed();
+    private static native void nativeAddCash(int amount);
+    private static native void nativeInfiniteNitro(boolean enabled);
+    private final Runnable updateSpeed = new Runnable() {
+        @Override public void run() {
+            if(!foreground||speed==null)return;
+            float value=nativeSpeed();
+            speed.setText(value>=0?tr("%s km/h",String.format(java.util.Locale.ROOT,"%.0f",value)):"");
+            speed.postDelayed(this,250);
+        }
+    };
+    /** Cheats: +1,000,000 career cash and infinite nitrous (kept between launches). */
+    private void showCheats() {
+        android.content.SharedPreferences prefs=getSharedPreferences(CHEATS,MODE_PRIVATE);
+        boolean nitro=prefs.getBoolean(INFINITE_NITRO,false);
+        String[] items={tr("+1 000 000 $ al dinero de la carrera"),tr(nitro?"Nitro infinito: activado":"Nitro infinito: desactivado")};
+        new AlertDialog.Builder(this).setTitle(tr("Trucos")).setItems(items,(dialog,which)->{
+            if(which==0){
+                nativeAddCash(1000000);
+                Toast.makeText(this,tr("+1 000 000 $ añadidos (con un perfil de carrera cargado)"),Toast.LENGTH_SHORT).show();
+            }else{
+                boolean enabled=!nitro;prefs.edit().putBoolean(INFINITE_NITRO,enabled).apply();nativeInfiniteNitro(enabled);
+                Toast.makeText(this,tr(enabled?"Nitro infinito activado":"Nitro infinito desactivado"),Toast.LENGTH_SHORT).show();
+            }
+        }).setNegativeButton(tr("Cerrar"),null).show();
+    }
     private boolean statusHidden;
     private Runnable statusHideTask;
     private static native void nativeKey(int scan, boolean down);
@@ -152,6 +181,7 @@ public final class GameActivity extends NativeActivity {
     private static native void nativeGamepadConnected(boolean connected);
     private static native void nativeGamepadDevices(int[] ids);
     private static native void nativeMinimapTop(boolean top);
+    private static native void nativeSkipIntro(boolean enabled);
     private static native void nativeBackBuffers(int count);
     private static native void nativeCpuTextures(boolean enabled);
     private static native void nativeGpuDriver(String hooks, String temp, String directory, String library);
@@ -237,24 +267,35 @@ public final class GameActivity extends NativeActivity {
         String server = launch.getStringExtra("onlineServer");
         nativeOnlineServer(GameOptions.validServer(server) ? server : GameOptions.onlineServer(this));
         nativeMinimapTop(launch.getBooleanExtra("minimapTop", GameOptions.get(this, GameOptions.MINIMAP).equals("top")));
+        nativeSkipIntro(launch.getBooleanExtra("skipIntro", GameOptions.get(this, GameOptions.INTRO).equals("skip")));
         nativeBackBuffers(launch.getIntExtra("backBuffers", Integer.parseInt(GameOptions.get(this, GameOptions.LATENCY))));
         nativeCpuTextures(launch.getBooleanExtra("cpuTextures", GameOptions.get(this, GameOptions.TEXTURES).equals("cpu")));
         padJoystick = launch.getBooleanExtra("padJoystick", GameOptions.get(this, GameOptions.GAMEPAD).equals("directinput"));
         String[] loader = launch.getStringArrayExtra("driverLoader");
         if (loader == null || loader.length != 4) loader = GpuDrivers.loaderArguments(this);
         nativeGpuDriver(loader[0], loader[1], loader[2], loader[3]);
+        nativeInfiniteNitro(getSharedPreferences(CHEATS, MODE_PRIVATE).getBoolean(INFINITE_NITRO, false));
         status = new TextView(this);
         status.setTextColor(Color.WHITE);
         status.setBackgroundColor(0xb0000000);
         status.setTextSize(18);
         status.setPadding(24, 16, 24, 16);
-        status.setText("NFS Most Wanted Android Evolved\nComprobando memoria interna/nfsmw…");
+        status.setText(Lang.t(this, "NFS Most Wanted Android Evolved\nComprobando memoria interna/nfsmw…"));
         // NativeActivity gives its main window surface to Vulkan; use a separate
         // non-interactive popup surface for the diagnostic text.
         statusWindow = new PopupWindow(status, ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT, false);
         statusWindow.setTouchable(false);
-        touchControls = new RacingControlsView(this, this::setTouchKey, this::showTextInput,this::showTiltOptions,this::showFrameLimitOptions);
+        // Speed at the top centre (as in the NFSU2 port): its own popup surface like the status text.
+        speed = new TextView(this);
+        speed.setTextColor(Color.WHITE);
+        speed.setShadowLayer(4, 0, 0, Color.BLACK);
+        speed.setTextSize(22);
+        speed.setTypeface(null, android.graphics.Typeface.BOLD);
+        speed.setPadding(12, 4, 12, 4);
+        speedWindow = new PopupWindow(speed, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, false);
+        speedWindow.setTouchable(false);
+        touchControls = new RacingControlsView(this, this::setTouchKey, this::showTextInput,this::showTiltOptions,this::showFrameLimitOptions,this::showCheats);
         touchControls.setPointer(GameActivity::nativePointer);
         controlsWindow = new PopupWindow(touchControls, ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT, false);
@@ -296,6 +337,10 @@ public final class GameActivity extends NativeActivity {
         if (focused && foreground && controlsWindow != null && !controlsWindow.isShowing()) {
             controlsWindow.showAtLocation(getWindow().getDecorView(), Gravity.TOP | Gravity.START, 0, 0);
         }
+        // After the touch controls, so the speed is drawn above them.
+        if (focused && foreground && speedWindow != null && !speedWindow.isShowing()) {
+            speedWindow.showAtLocation(getWindow().getDecorView(), Gravity.TOP | Gravity.CENTER_HORIZONTAL, 0, dp(6));
+        }
     }
     // LAN games announce and discover themselves with UDP broadcasts on port 9999;
     // without this lock many devices drop incoming Wi-Fi broadcasts to save power.
@@ -323,6 +368,8 @@ public final class GameActivity extends NativeActivity {
         if (statusWindow != null) statusWindow.dismiss();
         if (touchControls != null) {touchControls.removeCallbacks(updateControlMode);touchControls.releaseAll();}
         if (controlsWindow != null) controlsWindow.dismiss();
+        if (speedWindow != null) speedWindow.dismiss();
+        if (speed != null) speed.removeCallbacks(updateSpeed);
         super.onPause();
     }
     @Override protected void onResume() {
@@ -333,6 +380,7 @@ public final class GameActivity extends NativeActivity {
         updateTiltSensor();
         if(inputManager!=null){inputManager.registerInputDeviceListener(gamepadListener,null);updateGamepads();}
         if(touchControls!=null) {touchControls.removeCallbacks(updateControlMode);touchControls.post(updateControlMode);}
+        if(speed!=null) {speed.removeCallbacks(updateSpeed);speed.post(updateSpeed);}
         boolean allowed = Build.VERSION.SDK_INT >= 30
                 ? Environment.isExternalStorageManager()
                 : checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED

@@ -37,6 +37,7 @@ final class RacingControlsView extends View {
     private final Runnable textInput;
     private final Runnable configureTilt;
     private final Runnable configureFrameLimit;
+    private final Runnable cheats;
     private String style;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -67,10 +68,10 @@ final class RacingControlsView extends View {
             area = new RectF(x, y, x+w, y+h); original=new RectF(area); this.shape=shape; this.icon=icon; this.scan=scan; this.color=color;
         }
     }
-    RacingControlsView(Context context, Keys keys, Runnable textInput, Runnable configureTilt, Runnable configureFrameLimit) {
+    RacingControlsView(Context context, Keys keys, Runnable textInput, Runnable configureTilt, Runnable configureFrameLimit, Runnable cheats) {
         super(context); this.keys=keys; this.textInput=textInput;
         layouts=context.getSharedPreferences("touch_layouts_v1",Context.MODE_PRIVATE);
-        style=layouts.getString("style","classic");this.configureTilt=configureTilt;this.configureFrameLimit=configureFrameLimit;
+        style=layouts.getString("style","classic");this.configureTilt=configureTilt;this.configureFrameLimit=configureFrameLimit;this.cheats=cheats;
         setContentDescription(tr("Controles del juego"));
         setHapticFeedbackEnabled(true);
         line.setStyle(Paint.Style.STROKE);line.setStrokeCap(Paint.Cap.ROUND);line.setStrokeJoin(Paint.Join.ROUND);
@@ -353,9 +354,9 @@ final class RacingControlsView extends View {
     }
     private void showOptions() {
         new AlertDialog.Builder(getContext()).setTitle(tr("Opciones de controles"))
-                .setItems(Lang.t(getContext(),new String[]{"Estilo: clásico / Xbox / PlayStation","Conducción por inclinación","Límite de FPS","Guardar layout con nombre","Cargar layout personalizado"}),(dialog,which)->{
+                .setItems(Lang.t(getContext(),new String[]{"Estilo: clásico / Xbox / PlayStation","Conducción por inclinación","Límite de FPS","Guardar layout con nombre","Cargar layout personalizado","Trucos"}),(dialog,which)->{
                     if(which==0)chooseStyle();else if(which==1)configureTilt.run();
-                    else if(which==2)configureFrameLimit.run();else if(which==3)saveNamedLayout();else loadNamedLayout();
+                    else if(which==2)configureFrameLimit.run();else if(which==3)saveNamedLayout();else if(which==4)loadNamedLayout();else cheats.run();
                 }).setNegativeButton(tr("Cerrar"),null).show();
     }
     private void chooseStyle() {
@@ -419,17 +420,23 @@ final class RacingControlsView extends View {
         }
         return best;
     }
+    // Redraw only when what is drawn changed: a held pedal delivers ACTION_MOVE at
+    // the touch sampling rate (120+ Hz) and an invalidate() per event kept the
+    // HWUI RenderThread busy during a race, next to the game (NFSU2 port).
     private void hold(Control c) {
         if(c==null||++c.held!=1)return;
+        invalidate();
         if(c.scan>=0)keys.set(c.scan,true);
         performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
     }
     private void release(Control c) { if(c!=null && --c.held==0) {
+        invalidate();
         if(c.scan>=0)keys.set(c.scan,false);
         else if(c.scan==STICK) {c.steering=0;keys.set(0xcb,false);keys.set(0xcd,false);}
     } }
     private void steer(Control c,float x) {
-        c.steering=Math.max(-1,Math.min(1,(x/scale-c.area.centerX())/(c.area.width()/2)));
+        float steering=Math.max(-1,Math.min(1,(x/scale-c.area.centerX())/(c.area.width()/2)));
+        if(Math.abs(steering-c.steering)>=0.01f){c.steering=steering;invalidate();}
         keys.set(0xcb,c.steering<-.18f);keys.set(0xcd,c.steering>.18f);
     }
     void setPointer(Pointer pointer) { this.pointer=pointer; }
@@ -487,7 +494,7 @@ final class RacingControlsView extends View {
             }
             if(action==MotionEvent.ACTION_UP)releaseAll();  // the last finger left
         }
-        invalidate();return true;
+        return true;   // hold/release/steer/pointerTouch invalidate when something drawn changed
     }
     private String tr(String spanish,Object... args) {return Lang.t(getContext(),spanish,args);}
     @Override public boolean performClick() { super.performClick();return true; }

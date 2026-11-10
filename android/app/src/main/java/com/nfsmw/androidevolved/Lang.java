@@ -6,17 +6,19 @@ import java.util.HashMap;
 import java.util.Locale;
 
 /**
- * Launcher and touch-control texts in Spanish, English or Portuguese, chosen with the flags on the first
- * launch. The Spanish text is the key: a missing translation shows the Spanish original. The choice is
+ * Launcher and touch-control texts in Spanish, English, Portuguese or Russian, chosen with the flags on the first
+ * launch. The Spanish text is the key: a missing translation shows the Spanish original
+ * (Russian falls back to English). The choice is
  * stored in the launcher preferences, which the :game process reads when it starts.
  */
 final class Lang {
-    static final String ES = "es", EN = "en", PT = "pt";
+    static final String ES = "es", EN = "en", PT = "pt", RU = "ru";
     /** {code, flag, name}, in the order of the picker. */
-    static final String[][] CHOICES = {{ES, "🇪🇸", "Español"}, {EN, "🇬🇧", "English"}, {PT, "🇧🇷", "Português"}};
+    static final String[][] CHOICES = {{ES, "🇪🇸", "Español"}, {EN, "🇬🇧", "English"}, {PT, "🇧🇷", "Português"}, {RU, "🇷🇺", "Русский"}};
     private static final String PREFS = "nfsmw_launcher", KEY = "launcher_language";
     private static String current;
     private static final HashMap<String, String[]> TEXTS = new HashMap<>();
+    private static final HashMap<String, String> RU_TEXTS = new HashMap<>();
 
     private Lang() {}
 
@@ -34,7 +36,7 @@ final class Lang {
         if (current.isEmpty()) {
             // Before the choice: follow the phone, Spanish otherwise.
             String phone = Locale.getDefault().getLanguage();
-            return phone.equals(EN) || phone.equals(PT) ? phone : ES;
+            return phone.equals(EN) || phone.equals(PT) || phone.equals(RU) ? phone : ES;
         }
         return current;
     }
@@ -54,7 +56,12 @@ final class Lang {
     static String t(Context context, String spanish, Object... args) {
         String text = spanish;
         String code = code(context);
-        if (!code.equals(ES)) {
+        if (code.equals(RU)) {
+            String russian = RU_TEXTS.get(spanish);
+            String[] translated = TEXTS.get(spanish);
+            if (russian != null) text = russian;
+            else if (translated != null) text = translated[0];
+        } else if (!code.equals(ES)) {
             String[] translated = TEXTS.get(spanish);
             if (translated != null) text = code.equals(EN) ? translated[0] : translated[1];
         }
@@ -68,6 +75,7 @@ final class Lang {
     }
 
     private static void add(String es, String en, String pt) { TEXTS.put(es, new String[] {en, pt}); }
+    private static void ru(String es, String ru) { RU_TEXTS.put(es, ru); }
 
     static {
         // Language picker.
@@ -89,6 +97,16 @@ final class Lang {
                 "Allow file access so the launcher can read internal storage/nfsmw.",
                 "Permita o acesso aos arquivos para ler o armazenamento interno/nfsmw.");
         add("Memoria interna/nfsmw", "Internal storage/nfsmw", "Armazenamento interno/nfsmw");
+        add("Preparando los archivos del juego…", "Preparing the game files…", "Preparando os arquivos do jogo…");
+        add("Descomprimiendo los archivos del juego: %s%% (%s de %s)", "Unpacking the game files: %s%% (%s of %s)",
+                "Descompactando os arquivos do jogo: %s%% (%s de %s)");
+        add("No se pudo crear la carpeta %s", "Could not create the folder %s", "Não foi possível criar a pasta %s");
+        add("No se pudo reemplazar %s", "Could not replace %s", "Não foi possível substituir %s");
+        add("No se pudo escribir %s", "Could not write %s", "Não foi possível gravar %s");
+        add("Archivos del juego", "Game files", "Arquivos do jogo");
+        add("No se pudieron descomprimir los archivos del juego: %s\n\nComprueba que haya al menos 4 GB libres en la memoria interna y vuelve a abrir la aplicación.",
+                "The game files could not be unpacked: %s\n\nMake sure at least 4 GB of internal storage is free and open the app again.",
+                "Não foi possível descompactar os arquivos do jogo: %s\n\nVerifique se há pelo menos 4 GB livres no armazenamento interno e abra o aplicativo novamente.");
         add("Copia los archivos de tu juego en memoria interna/nfsmw.", "Copy your game files to internal storage/nfsmw.",
                 "Copie os arquivos do seu jogo para o armazenamento interno/nfsmw.");
         add("Copia los archivos de tu juego (Speed.exe y sus carpetas) dentro de:\n%s",
@@ -239,5 +257,191 @@ final class Lang {
         add("Todavía no hay layouts guardados para este modo", "No layouts saved for this mode yet", "Ainda não há layouts salvos para este modo");
         add("Cargar layout", "Load layout", "Carregar layout");
         add("No se pudo cargar el layout", "The layout could not be loaded", "Não foi possível carregar o layout");
+        add("Trucos", "Cheats", "Trapaças");
+        add("Vídeos de introducción", "Intro movies", "Vídeos de introdução");
+        add("Omitir · logo de EA y aviso", "Skip · EA logo and notice", "Pular · logo da EA e aviso");
+        add("Reproducir (original)", "Play (original)", "Reproduzir (original)");
+        add("+1 000 000 $ al dinero de la carrera", "+1,000,000 $ career cash", "+1.000.000 $ no dinheiro da carreira");
+        add("+1 000 000 $ añadidos (con un perfil de carrera cargado)", "+1,000,000 $ added (with a career profile loaded)",
+                "+1.000.000 $ adicionados (com um perfil de carreira carregado)");
+        add("Nitro infinito: activado", "Infinite nitrous: on", "Nitro infinito: ativado");
+        add("Nitro infinito: desactivado", "Infinite nitrous: off", "Nitro infinito: desativado");
+        add("Nitro infinito activado", "Infinite nitrous on", "Nitro infinito ativado");
+        add("Nitro infinito desactivado", "Infinite nitrous off", "Nitro infinito desativado");
+        add("%s km/h", "%s km/h", "%s km/h");
+        add("NFS Most Wanted Android Evolved\nComprobando memoria interna/nfsmw…",
+                "NFS Most Wanted Android Evolved\nChecking internal storage/nfsmw…",
+                "NFS Most Wanted Android Evolved\nVerificando o armazenamento interno/nfsmw…");
+        add("Comprobando el driver Vulkan…", "Checking the Vulkan driver…", "Verificando o driver Vulkan…");
+        // Русский. Ключ — испанский текст, как у add(); без перевода показывается английский.
+        ru("Elige el idioma del launcher", "Выберите язык лаунчера");
+        ru("Idioma del launcher", "Язык лаунчера");
+        ru("Puedes cambiarlo después en Opciones.", "Потом его можно сменить в настройках.");
+        ru("NFS Most Wanted Android Evolved\nComprobando memoria interna/nfsmw…", "NFS Most Wanted Android Evolved\nПроверяем внутреннюю память/nfsmw…");
+        ru("Comprobando el driver Vulkan…", "Проверяем драйвер Vulkan…");
+
+        ru("PC · recompilado de forma nativa para Android", "PC · нативная рекомпиляция для Android");
+        ru("ARCHIVOS DEL JUEGO", "ФАЙЛЫ ИГРЫ");
+        ru("JUGAR", "ИГРАТЬ");
+        ru("Permitir acceso a memoria interna/nfsmw", "Разрешить доступ к внутренней памяти/nfsmw");
+        ru("OPCIONES", "НАСТРОЙКИ");
+        ru("Se aplican al pulsar JUGAR.", "Применяются при нажатии ИГРАТЬ.");
+        ru("Carpetas del juego", "Папки игры");
+        ru("Faltan carpetas: %s", "Нет папок: %s");
+        ru(" · opcional", " · необязательно");
+        ru("Permite el acceso a archivos para leer memoria interna/nfsmw.", "Разрешите доступ к файлам, чтобы лаунчер мог читать внутреннюю память/nfsmw.");
+        ru("Memoria interna/nfsmw", "Внутренняя память/nfsmw");
+        ru("Preparando los archivos del juego…", "Готовим файлы игры…");
+        ru("Descomprimiendo los archivos del juego: %s%% (%s de %s)", "Распаковка файлов игры: %s%% (%s из %s)");
+        ru("No se pudo crear la carpeta %s", "Не удалось создать папку %s");
+        ru("No se pudo reemplazar %s", "Не удалось заменить %s");
+        ru("No se pudo escribir %s", "Не удалось записать %s");
+        ru("Archivos del juego", "Файлы игры");
+        ru("No se pudieron descomprimir los archivos del juego: %s\n\nComprueba que haya al menos 4 GB libres en la memoria interna y vuelve a abrir la aplicación.",
+                "Не удалось распаковать файлы игры: %s\n\nПроверьте, что во внутренней памяти свободно не меньше 4 ГБ, и откройте приложение снова.");
+        ru("Copia los archivos de tu juego en memoria interna/nfsmw.", "Скопируйте файлы игры во внутреннюю память/nfsmw.");
+        ru("Copia los archivos de tu juego (Speed.exe y sus carpetas) dentro de:\n%s", "Скопируйте файлы игры (Speed.exe и его папки) в:\n%s");
+        ru("Los archivos están en «%s»: mueve su contenido directamente a memoria interna/nfsmw.",
+                "Файлы лежат в «%s»: перенесите её содержимое прямо во внутреннюю память/nfsmw.");
+        ru("Falta LANGUAGES/<idioma>.bin", "Нет LANGUAGES/<язык>.bin");
+        ru("Driver Vulkan", "Драйвер Vulkan");
+        ru("Del sistema", "Системный");
+        ru("Probar driver", "Проверить драйвер");
+        ru("GPU y funciones Vulkan", "GPU и возможности Vulkan");
+        ru("Idioma del juego", "Язык игры");
+        ru("Servidor online", "Онлайн-сервер");
+        ru("Buscar actualizaciones", "Проверить обновления");
+        ru("Comprobando GitHub…", "Проверяем GitHub…");
+        ru("Versión %s", "Версия %s");
+        ru("Reportar un problema", "Сообщить о проблеме");
+        ru("Log completo a GitHub", "Полный лог на GitHub");
+        ru("No se encontraron idiomas en memoria interna/nfsmw/LANGUAGES.", "Во внутренней памяти/nfsmw/LANGUAGES не найдено ни одного языка.");
+        ru("Aceptar", "OK");
+        ru("Cancelar", "Отмена");
+        ru("Guardar", "Сохранить");
+        ru("Restaurar", "По умолчанию");
+        ru("Volver", "Назад");
+        ru("Cerrar", "Закрыть");
+        ru("El modo online del juego (EA Nation) se conecta a este servidor de la comunidad en lugar de los servidores de EA, ya cerrados.",
+                "Онлайн-режим игры (EA Nation) подключается к этому серверу сообщества вместо закрытых серверов EA.");
+        ru("\"%s\" no es un nombre de servidor válido.", "«%s» — недопустимое имя сервера.");
+        ru("Driver del sistema", "Системный драйвер");
+        ru("Importar ZIP", "Импорт ZIP");
+        ru("Eliminar seleccionado", "Удалить выбранный");
+        ru("No se pudo usar el driver: %s", "Не удалось использовать драйвер: %s");
+        ru("error al iniciar Vulkan.", "ошибка запуска Vulkan.");
+        ru("Texturas BC: ", "Текстуры BC: ");
+        ru("en la GPU", "на GPU");
+        ru("se convierten en la CPU", "конвертируются на CPU");
+        ru("Tipos de vértice sin soporte: ", "Неподдерживаемые форматы вершин: ");
+        ru("Compatible con el juego.", "Совместим с игрой.");
+        ru("Faltan funciones: ", "Не хватает возможностей: ");
+        ru("Prueba del driver Vulkan", "Проверка драйвера Vulkan");
+        ru("Usar driver del sistema", "Использовать системный драйвер");
+        ru("Jugar igualmente", "Всё равно играть");
+        ru("Diagnóstico no válido: ", "Некорректная диагностика: ");
+        ru("La prueba se cerró o fue cancelada.", "Проверка закрылась или была отменена.");
+        ru("Importando driver Vulkan…", "Импортируем драйвер Vulkan…");
+        ru("Driver importado: %s. Usa Probar driver para comprobarlo.", "Драйвер импортирован: %s. Проверьте его кнопкой «Проверить драйвер».");
+        ru("No se pudo importar el driver: ", "Не удалось импортировать драйвер: ");
+        ru("Actualizaciones", "Обновления");
+        ru("Tienes la versión %s. No hay una versión más reciente en GitHub.", "У вас версия %s. Более новой версии на GitHub нет.");
+        ru("Nueva versión disponible: %s", "Доступна новая версия: %s");
+        ru("Puedes descargarla desde GitHub o seguir jugando con esta versión. Instala el APK encima del actual para conservar tus partidas y ajustes.",
+                "Её можно скачать с GitHub или продолжить играть в этой версии. Ставьте APK поверх текущего, чтобы сохранить прогресс и настройки.");
+        ru("Actualizar", "Обновить");
+        ru("Más tarde", "Позже");
+        ru("¡Actualizado a la versión %s!", "Обновлено до версии %s!");
+        ru("Cargando las novedades…", "Загружаем список изменений…");
+        ru("Ver en GitHub", "Открыть на GitHub");
+        ru("No se pudieron cargar las novedades (sin conexión o aún no publicadas). Puedes verlas en GitHub.",
+                "Не удалось загрузить список изменений (нет сети или он ещё не опубликован). Его можно посмотреть на GitHub.");
+        ru("El juego se cerró", "Игра закрылась");
+        ru("%s.\n\n¿Quieres enviar el registro completo a GitHub para que se pueda corregir?",
+                "%s.\n\nОтправить полный лог на GitHub, чтобы ошибку можно было исправить?");
+        ru("Reportar en GitHub", "Сообщить на GitHub");
+        ru("Ahora no", "Не сейчас");
+        ru("Preparando el registro…", "Готовим лог…");
+        ru("El registro completo se ha guardado en:\n%s\n\nSe abrirá la issue en GitHub con un resumen técnico ya escrito. Describe qué pasó y, si puedes, adjunta ese ZIP (GitHub no permite adjuntarlo automáticamente).",
+                "Полный лог сохранён в:\n%s\n\nОткроется issue на GitHub с уже заполненной технической сводкой. Опишите, что произошло, и по возможности приложите этот ZIP (GitHub не даёт прикрепить его автоматически).");
+        ru("Abrir GitHub", "Открыть GitHub");
+        ru("No se pudo preparar el registro: ", "Не удалось подготовить лог: ");
+        ru("No hay un navegador para abrir %s", "Нет браузера, чтобы открыть %s");
+
+        ru("Resolución interna", "Внутреннее разрешение");
+        ru("Nativa · máxima calidad", "Нативное · лучшее качество");
+        ru("75% · equilibrada", "75% · баланс");
+        ru("50% · máximo rendimiento", "50% · максимум FPS");
+        ru("720p · adaptada a la pantalla", "720p · под экран");
+        ru("480p · rendimiento", "480p · производительность");
+        ru("360p · máximo rendimiento", "360p · максимум FPS");
+        ru("Límite de FPS", "Ограничение FPS");
+        ru("30 FPS · ahorra batería", "30 FPS · экономия батареи");
+        ru("Sin límite", "Без ограничения");
+        ru("Pantalla panorámica", "Широкий экран");
+        ru("HUD proporcional", "Пропорциональный HUD");
+        ru("HUD original estirado", "Оригинальный растянутый HUD");
+        ru("Minimapa", "Мини-карта");
+        ru("Canal del desarrollador oficial", "Официальный канал разработчика");
+        ru("Arriba a la izquierda", "Слева вверху");
+        ru("Abajo a la izquierda (original)", "Слева внизу (как в оригинале)");
+        ru("Sincronía CPU/GPU", "Синхронизация CPU/GPU");
+        ru("Rendimiento · CPU y GPU en paralelo", "Производительность · CPU и GPU параллельно");
+        ru("Baja latencia · menos FPS", "Низкая задержка · меньше FPS");
+        ru("Texturas comprimidas", "Сжатые текстуры");
+        ru("Automático · GPU si las soporta", "Авто · на GPU, если поддерживаются");
+        ru("Convertir en CPU · compatibilidad", "Конвертировать на CPU · совместимость");
+        ru("Mando Bluetooth/USB", "Геймпад Bluetooth/USB");
+        ru("Como teclado · compatible", "Как клавиатура · совместимо");
+        ru("Joystick DirectInput · analógico, experimental", "Джойстик DirectInput · аналоговый, экспериментально");
+
+        ru("Este dispositivo no dispone de acelerómetro", "На этом устройстве нет акселерометра");
+        ru("Girar inclinando el celular", "Руль наклоном телефона");
+        ru("Invertir dirección", "Инвертировать направление");
+        ru("Sensibilidad: %s×", "Чувствительность: %s×");
+        ru("Sostén el celular en tu posición de juego al aplicar. La inclinación activa izquierda/derecha; los pedales siguen siendo táctiles.",
+                "При нажатии «Применить» держите телефон так, как держите в игре. Наклон поворачивает влево/вправо, педали остаются на экране.");
+        ru("Conducción por inclinación", "Управление наклоном");
+        ru("Aplicar y calibrar", "Применить и откалибровать");
+        ru("Nombre, correo o contraseña", "Имя, почта или пароль");
+        ru("Reemplazar el nombre actual", "Заменить текущее имя");
+        ru("Escribir en el juego", "Ввод текста в игре");
+        ru("Escribir", "Ввести");
+        ru("Hasta 40 caracteres: letras sin tildes, números y . , - _ @ + ! # $ % & * ( ) = ? / ; :",
+                "До 40 символов: латинские буквы без диакритики, цифры и . , - _ @ + ! # $ % & * ( ) = ? / ; :");
+        ru("Permite acceso a archivos para leer la carpeta nfsmw de la memoria interna",
+                "Разрешите доступ к файлам, чтобы читать папку nfsmw во внутренней памяти");
+        ru("Controles del juego", "Управление в игре");
+        ru("RESTABLECER", "СБРОСИТЬ");
+        ru("GUARDAR", "СОХРАНИТЬ");
+        ru("CANCELAR", "ОТМЕНА");
+        ru("Opciones de controles", "Настройки управления");
+        ru("Estilo: clásico / Xbox / PlayStation", "Стиль: классический / Xbox / PlayStation");
+        ru("Guardar layout con nombre", "Сохранить раскладку под именем");
+        ru("Cargar layout personalizado", "Загрузить свою раскладку");
+        ru("Estilo de conducción", "Стиль управления");
+        ru("Clásico · flechas y pedales", "Классический · стрелки и педали");
+        ru("Xbox · volante y A / B / X / Y", "Xbox · руль и A / B / X / Y");
+        ru("PlayStation · volante y × / ○ / □ / △", "PlayStation · руль и × / ○ / □ / △");
+        ru("Nombre del layout", "Название раскладки");
+        ru("Guardar diseño de conducción", "Сохранить раскладку для езды");
+        ru("Guardar diseño de menú", "Сохранить раскладку для меню");
+        ru("Escribe un nombre", "Введите название");
+        ru("Layout guardado: %s", "Раскладка сохранена: %s");
+        ru("No se pudo guardar el layout", "Не удалось сохранить раскладку");
+        ru("Todavía no hay layouts guardados para este modo", "Для этого режима пока нет сохранённых раскладок");
+        ru("Cargar layout", "Загрузить раскладку");
+        ru("No se pudo cargar el layout", "Не удалось загрузить раскладку");
+        ru("Trucos", "Читы");
+        ru("Vídeos de introducción", "Заставки при запуске");
+        ru("Omitir · logo de EA y aviso", "Пропускать · логотип EA и предупреждение");
+        ru("Reproducir (original)", "Показывать (как в оригинале)");
+        ru("+1 000 000 $ al dinero de la carrera", "+1 000 000 $ в карьере");
+        ru("+1 000 000 $ añadidos (con un perfil de carrera cargado)", "+1 000 000 $ добавлено (нужен загруженный профиль карьеры)");
+        ru("Nitro infinito: activado", "Бесконечная закись азота: вкл.");
+        ru("Nitro infinito: desactivado", "Бесконечная закись азота: выкл.");
+        ru("Nitro infinito activado", "Бесконечная закись азота включена");
+        ru("Nitro infinito desactivado", "Бесконечная закись азота выключена");
+        ru("%s km/h", "%s км/ч");
     }
 }

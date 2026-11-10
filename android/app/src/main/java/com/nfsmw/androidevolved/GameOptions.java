@@ -21,7 +21,7 @@ final class GameOptions {
     }
 
     static final String RESOLUTION = "resolution", FPS = "fps", WIDESCREEN = "widescreen", LATENCY = "latency",
-            TEXTURES = "textures", MINIMAP = "minimap", LANGUAGE = "language", GAMEPAD = "gamepad";
+            TEXTURES = "textures", MINIMAP = "minimap", LANGUAGE = "language", GAMEPAD = "gamepad", INTRO = "intro";
 
     static final Option[] ALL = {
             new Option(RESOLUTION, "Resolución interna", "75",
@@ -34,6 +34,9 @@ final class GameOptions {
             new Option(WIDESCREEN, "Pantalla panorámica", "on",
                     new String[] {"on", "off"},
                     new String[] {"HUD proporcional", "HUD original estirado"}),
+            new Option(INTRO, "Vídeos de introducción", "skip",
+                    new String[] {"skip", "play"},
+                    new String[] {"Omitir · logo de EA y aviso", "Reproducir (original)"}),
             new Option(MINIMAP, "Minimapa", "top",
                     new String[] {"top", "bottom"},
                     new String[] {"Arriba a la izquierda", "Abajo a la izquierda (original)"}),

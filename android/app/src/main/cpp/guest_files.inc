@@ -24,6 +24,16 @@ std::filesystem::path gamePath(std::string guest){
     auto check=resolved.lexically_relative(root);for(const auto& part:check)if(part=="..")throw GuestStop("Guest symlink leaves data root");return resolved;
 }
 std::map<uint32_t,int> fileHandles;uint32_t nextFileHandle=0xf0060000;
+// Start-up movies: Most Wanted plays MOVIES/ealogo_<lang>.vp6 and psa_<lang>.vp6 before the
+// main menu, and neither can be skipped. With the launcher's "Intro movies" option set to skip,
+// both report "file not found", which the game handles by moving on (the PC tweak of deleting
+// them); the files stay untouched. The attract and story movies are not affected.
+bool skippedIntroMovie(const std::filesystem::path& path){
+    if(!guestSkipIntro)return false;
+    auto name=lower(path.filename().string());
+    if(lower(path.parent_path().filename().string())!="movies"||lower(path.extension().string())!=".vp6")return false;
+    return name.rfind("ealogo",0)==0||name.rfind("psa",0)==0;
+}
 // The game skips its CD-drive check when the game folder holds a file named
 // "foobar" (its developer switch, 0x0057CAC0("foobar")). Copies made without
 // it showed the insert-disc MessageBoxA. Present it as an empty file when absent.
@@ -50,6 +60,10 @@ void createFile(){
     if(flags&0x40000000u)throw GuestStop("Overlapped CreateFile requires asynchronous file service");
     int options=access&0x40000000u?(access&0x80000000u?O_RDWR:O_WRONLY):O_RDONLY;
     switch(disposition){case 1:options|=O_CREAT|O_EXCL;break;case 2:options|=O_CREAT|O_TRUNC;break;case 3:break;case 4:options|=O_CREAT;break;case 5:options|=O_TRUNC;break;default:lastError=87;ret(UINT32_MAX,7);return;}
+    if(skippedIntroMovie(path)){
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSMW","Intro skipped: %s",path.filename().string().c_str());
+        lastError=2;ret(UINT32_MAX,7);return;
+    }
     bool existed=std::filesystem::exists(path);
     int descriptor=disposition==3&&!(access&0x40000000u)&&discCheckSwitch(path) ? ::open("/dev/null",O_RDONLY|O_CLOEXEC) : ::open(path.c_str(),options|O_CLOEXEC,0600);
     NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSMW","Guest file %s access=%x disposition=%u",path.filename().string().c_str(),access,disposition);
@@ -91,7 +105,7 @@ void setEndOfFile(){auto file=fileHandles.find(arg(0));if(file==fileHandles.end(
     auto position=::lseek(file->second,0,SEEK_CUR);if(position<0||::ftruncate(file->second,position)){lastError=fileError();ret(0,1);return;}ret(1,1);
 }
 void fileSize(){auto file=fileHandles.find(arg(0));struct stat status{};if(file==fileHandles.end()){lastError=6;ret(UINT32_MAX,2);return;}if(fstat(file->second,&status)){lastError=fileError();ret(UINT32_MAX,2);return;}uint64_t size=status.st_size;if(arg(1))write32(arg(1),size>>32);lastError=0;ret(size,2);}
-void fileAttributes(){auto path=gamePath(guestString(arg(0)));struct stat status{};if(discCheckSwitch(path)){ret(0x20,1);return;}if(stat(path.c_str(),&status)){lastError=fileError();ret(UINT32_MAX,1);return;}ret(S_ISDIR(status.st_mode)?0x10:0x20,1);}
+void fileAttributes(){auto path=gamePath(guestString(arg(0)));struct stat status{};if(discCheckSwitch(path)){ret(0x20,1);return;}if(skippedIntroMovie(path)){lastError=2;ret(UINT32_MAX,1);return;}if(stat(path.c_str(),&status)){lastError=fileError();ret(UINT32_MAX,1);return;}ret(S_ISDIR(status.st_mode)?0x10:0x20,1);}
 void setFilePointer(){
     auto file=fileHandles.find(arg(0));if(file==fileHandles.end()){lastError=6;ret(UINT32_MAX,4);return;}
     uint32_t method=arg(3),high=arg(2);if(method>2){lastError=87;ret(UINT32_MAX,4);return;}
