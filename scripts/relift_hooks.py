@@ -3,6 +3,8 @@
 Equivalent to a complete lift for these functions; untouched units retain
 their bytes and timestamps. Generated game C remains local and ignored.
 Pass --x87-flags once to also replace old x87 flag translations in a local lift.
+Pass --interlocked once to relift functions whose LOCK XADD/CMPXCHG lifted as
+"Instruction unsupported" before mw_lifter.py handled them (issue #773).
 """
 import re
 import json
@@ -28,6 +30,9 @@ for generated in (root/'src/recomp/gen').glob('recomp_[0-9]*.c'):
     if '--x87-flags' in sys.argv:
         for match in re.finditer(r'^void sub_([0-9A-F]{8})\(void\) \{(.*?)(?=^void sub_|\Z)',source,re.M|re.S):
             if 'FK_FCOM' in match[2]:fpu_functions.add(int(match[1],16))
+    if '--interlocked' in sys.argv:
+        for match in re.finditer(r'^void sub_([0-9A-F]{8})\(void\) \{(.*?)(?=^void sub_|\Z)',source,re.M|re.S):
+            if re.search(r'RECOMP_UNIMPL\([^)]*"lock (xadd|cmpxchg)',match[2]):fpu_functions.add(int(match[1],16))
 selected_sites=hooks|previous_hooks|set(overrides)
 pe=pefile.PE(str(image_path));base=pe.OPTIONAL_HEADER.ImageBase;image=pe.get_memory_mapped_image()
 info=driver.analyze_pe(str(image_path));iat=driver.build_iat_map(info)
