@@ -8,9 +8,11 @@
 #include "runtime_log.h"
 #include <dlfcn.h>
 #include <sched.h>
+#include <sys/system_properties.h>
 #include <unistd.h>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 inline long readCpuValue(unsigned cpu,const char* file){
@@ -19,13 +21,15 @@ inline long readCpuValue(unsigned cpu,const char* file){
     if(FILE* input=std::fopen(path,"r")){if(std::fscanf(input,"%ld",&value)!=1)value=-1;std::fclose(input);}
     return value;
 }
-// Cores with at least 60% of the fastest one; empty when that is all of them or
-// the kernel does not say (nothing to choose, so the affinity is left alone).
-// Fast cores: at least 60% of the fastest one's capacity. With four or more, every
+// Fast cores: at least 80% of the fastest one's capacity. With four or more, every
 // guest thread stays on them. With fewer (2+6 designs: Helio G85/G99, capacities
 // 516x6 and 1024x2), only the game's main thread does: all guest threads on two
 // cores ran slower than Android's placement (U1/U2 reports), while leaving the main
 // thread free made Most Wanted lag again on a Helio G99 (MW #892).
+// 60% counted all 8 cores of a Dimensity 8400 (697x4, 929x3, 1024) as fast, so no
+// affinity was set at all and secondary guest threads landed on the 2.1 GHz cores
+// while the render thread waited for the machine (nfsu2-recompiled 9fb1e8a).
+// debug.nfsmw.fastcore=<percent> overrides the threshold for measurements.
 enum class CorePolicy {none,mainThread,allThreads};
 inline const cpu_set_t& performanceCores(CorePolicy* policy=nullptr){
     static CorePolicy chosenPolicy=CorePolicy::none;
@@ -40,10 +44,12 @@ inline const cpu_set_t& performanceCores(CorePolicy* policy=nullptr){
             ++online;fastest=std::max(fastest,speed[cpu]);
             report+=(report.empty()?"":" ")+std::to_string(speed[cpu]);
         }
+        long percent=80;
+        {char value[PROP_VALUE_MAX]={};if(__system_property_get("debug.nfsmw.fastcore",value)>0){long v=std::atol(value);if(v>0&&v<=100)percent=v;}}
         cpu_set_t chosen;CPU_ZERO(&chosen);unsigned count=0;
-        for(unsigned cpu=0;cpu<maximum;++cpu)if(speed[cpu]>0&&speed[cpu]*10>=fastest*6){CPU_SET(cpu,&chosen);++count;}
+        for(unsigned cpu=0;cpu<maximum;++cpu)if(speed[cpu]>0&&speed[cpu]*100>=fastest*percent){CPU_SET(cpu,&chosen);++count;}
         chosenPolicy=count==0||count>=online?CorePolicy::none:count>=4?CorePolicy::allThreads:CorePolicy::mainThread;
-        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSMW","CPU cores (%s): %s; %u fast; %s",file,report.c_str(),count,
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSMW","CPU cores (%s): %s; %u fast at %ld%%; %s",file,report.c_str(),count,percent,
             chosenPolicy==CorePolicy::allThreads?"guest threads on the fast cores":
             chosenPolicy==CorePolicy::mainThread?"main guest thread on the fast cores":"no affinity");
         return chosen;
