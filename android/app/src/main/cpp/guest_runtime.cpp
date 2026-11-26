@@ -63,6 +63,8 @@ uint32_t g_icall_trace[ICALL_TRACE_SIZE], g_icall_from[ICALL_TRACE_SIZE];
 uint32_t g_icall_trace_idx, g_icall_count;
 }
 
+// Defined with guestDrivingControls; guest_modules.inc posts a notice for the player.
+void postGuestNotice(const std::string& text);
 namespace {
 std::atomic<uint32_t> displayWidth{1280},displayHeight{720};
 std::atomic<uint32_t> renderWidth{0},renderHeight{0};
@@ -426,7 +428,10 @@ void moduleHandle() {
     if(name.find('.')==std::string::npos) name+=".dll";
     if(uint32_t loaded=guestModuleHandle(name)) { ret(loaded,1); return; }
     auto module=modules.find(name);
-    NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSMW","Module lookup %s",name.c_str());
+    // Asked every frame for d3d9.dll and d3d9d.dll: one line per name, not one per call.
+    static std::set<std::string> loggedLookups;
+    if(loggedLookups.insert(name).second)
+        NFS_RUNTIME_LOG(ANDROID_LOG_INFO,"NFSMW","Module lookup %s",name.c_str());
     if(module==modules.end()) lastError=126;
     ret(module==modules.end()?0:module->second,1);
 }
@@ -911,7 +916,7 @@ extern "C" void recomp_dump_trace(const char*) {}
 // resolution menu is not mapped yet, so the game keeps its own modes and DXVK scales.)
 
 std::string connectGuestRuntime(const char* executable) {
-    stayOnPerformanceCores();
+    stayOnPerformanceCores(true);  // the guest main thread
     std::unique_lock<MachineMutex> guard(machine);machineLease=&guard;
     if (memory) return "Runtime guest ya inicializado";
     State original; original.save();
@@ -990,6 +995,9 @@ void setGuestPaused(bool paused) {
     }
 }
 bool guestDrivingControls() {return inputDrivingMode.load();}
+std::mutex guestNoticeMutex;std::string guestNotice;
+void postGuestNotice(const std::string& text){std::lock_guard<std::mutex> lock(guestNoticeMutex);guestNotice=text;}
+std::string takeGuestNotice(){std::lock_guard<std::mutex> lock(guestNoticeMutex);std::string text;text.swap(guestNotice);return text;}
 void setGuestPad(const float axes[6],uint32_t buttons,int hatX,int hatY){
     std::lock_guard<std::mutex> lock(inputMutex);
     for(unsigned i=0;i<6;++i)inputPad.axis[i]=std::max(-1.f,std::min(1.f,axes[i]));
